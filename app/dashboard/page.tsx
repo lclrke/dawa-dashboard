@@ -1,138 +1,166 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabaseClient";
 
-type Artist = {
-  id: string;
-  name: string | null;
+type ArtistRow = {
+  artist_id: string;
+  artists: { name: string } | null;
 };
 
 export default function Dashboard() {
   const router = useRouter();
+
   const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [artist, setArtist] = useState<Artist | null>(null);
-  const [artistNameInput, setArtistNameInput] = useState("");
+  const [artistName, setArtistName] = useState<string | null>(null);
+  const [artistId, setArtistId] = useState<string | null>(null);
+
+  const [inputName, setInputName] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-
-  // keep user id around for createArtist handler
-  const userIdRef = useRef<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    const init = async () => {
-      // 1) Who is logged in?
+    const load = async () => {
+      setLoading(true);
+
       const {
         data: { user },
+        error,
       } = await supabase.auth.getUser();
 
-      if (!user) {
+      if (error || !user) {
         router.replace("/");
         return;
       }
 
-      userIdRef.current = user.id;
       setUserEmail(user.email ?? null);
 
-      // 2) Do we already have an artist linked to this user?
-      //    (for now, just load the first one)
-      const { data, error } = await supabase
+      // get first artist linked to this user (if any)
+      const { data, error: artistError } = await supabase
         .from("user_artists")
-        .select("artist:artists(id, name)")
+        .select("artist_id, artists(name)")
         .eq("user_id", user.id)
-        .maybeSingle();
+        .limit(1)
+        .maybeSingle<ArtistRow>();
 
-      if (error) {
-        console.error("Error loading user_artists", error);
-        setLoading(false);
-        return;
-      }
-
-      if (data && (data as any).artist) {
-        setArtist((data as any).artist as Artist);
+      if (!artistError && data) {
+        setArtistId(data.artist_id);
+        const name = data.artists?.name ?? null;
+        setArtistName(name);
+        if (name) setInputName(name);
       }
 
       setLoading(false);
     };
 
-    init();
+    load();
   }, [router]);
 
-  const handleCreateArtist = async () => {
-    if (!userIdRef.current) return;
-    const trimmed = artistNameInput.trim();
-    if (!trimmed) return;
+  const handleSaveArtist = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg(null);
+
+    const trimmed = inputName.trim();
+    if (!trimmed) {
+      setErrorMsg("Artist name cannot be empty.");
+      return;
+    }
 
     setSaving(true);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        router.replace("/");
+        return;
+      }
 
-    // 3) Create a new artist row
-    const { data: insertedArtist, error: insertError } = await supabase
-      .from("artists")
-      .insert({ name: trimmed })
-      .select()
-      .single();
+      // 1) Ensure artist exists (name is UNIQUE in artists table)
+      const { data: artistRow, error: upsertError } = await supabase
+        .from("artists")
+        .upsert({ name: trimmed }, { onConflict: "name" })
+        .select("id, name")
+        .maybeSingle();
 
-    if (insertError || !insertedArtist) {
-      console.error("Error creating artist", insertError);
+      if (upsertError || !artistRow) {
+        throw upsertError ?? new Error("Artist upsert returned no row");
+      }
+
+      const newArtistId = artistRow.id as string;
+
+      // 2) Link user ↔ artist in user_artists
+      const { error: linkError } = await supabase
+        .from("user_artists")
+        .upsert(
+          {
+            user_id: user.id,
+            artist_id: newArtistId,
+            role: "owner",
+          },
+          { onConflict: "user_id,artist_id" }
+        );
+
+      if (linkError) throw linkError;
+
+      setArtistId(newArtistId);
+      setArtistName(artistRow.name);
+    } catch (err: any) {
+      console.error(err);
+      setErrorMsg(err.message ?? "Failed to save artist");
+    } finally {
       setSaving(false);
-      return;
     }
-
-    // 4) Link this user to that artist
-    const { error: linkError } = await supabase.from("user_artists").insert({
-      user_id: userIdRef.current,
-      artist_id: insertedArtist.id,
-      role: "owner",
-    });
-
-    if (linkError) {
-      console.error("Error linking user to artist", linkError);
-      setSaving(false);
-      return;
-    }
-
-    setArtist(insertedArtist as Artist);
-    setSaving(false);
   };
 
   if (loading) {
-    return <main className="p-6">Loading…</main>;
-  }
-
-  // If no artist yet → show form to create one
-  if (!artist) {
     return (
-      <main className="p-6 space-y-4">
-        <h1 className="text-2xl font-semibold">Dashboard</h1>
-        <p>User: {userEmail}</p>
-        <p className="mt-4">Create your first artist/profile:</p>
-        <input
-          className="border px-3 py-2 rounded text-black"
-          placeholder="Artist name (e.g., Legendcast)"
-          value={artistNameInput}
-          onChange={(e) => setArtistNameInput(e.target.value)}
-        />
-        <div>
-          <button
-            onClick={handleCreateArtist}
-            className="mt-2 px-4 py-2 border rounded"
-            disabled={saving}
-          >
-            {saving ? "Saving…" : "Save artist"}
-          </button>
-        </div>
+      <main className="min-h-screen flex items-center justify-center">
+        <p>Loading…</p>
       </main>
     );
   }
 
-  // Artist exists → show user + artist + ID
   return (
-    <main className="p-6 space-y-4">
-      <h1 className="text-2xl font-semibold">Dashboard</h1>
-      <p>User: {userEmail}</p>
-      <p>Artist name: {artist.name}</p>
-      <p>Artist ID: {artist.id}</p>
+    <main className="min-h-screen px-8 py-12 text-white bg-black">
+      <h1 className="text-5xl font-bold mb-8">Dashboard</h1>
+
+      {userEmail && (
+        <p className="mb-4 text-lg">User: {userEmail}</p>
+      )}
+
+      <p className="mb-2 text-lg">
+        Current artist name: {artistName ?? "None yet"}
+      </p>
+      <p className="mb-8 text-lg">
+        Current artist ID: {artistId ?? "—"}
+      </p>
+
+      <form onSubmit={handleSaveArtist} className="max-w-md space-y-4">
+        <label className="block">
+          <span className="block mb-1">Set artist name</span>
+          <input
+            value={inputName}
+            onChange={(e) => setInputName(e.target.value)}
+            className="w-full px-3 py-2 rounded border border-gray-600 bg-black text-white"
+            placeholder='e.g. "Love Thy Brother"'
+          />
+        </label>
+
+        {errorMsg && (
+          <p className="text-red-400 text-sm">{errorMsg}</p>
+        )}
+
+        <button
+          type="submit"
+          disabled={saving}
+          className="px-4 py-2 rounded border border-white disabled:opacity-60"
+        >
+          {saving ? "Saving…" : "Save artist"}
+        </button>
+      </form>
     </main>
   );
 }
