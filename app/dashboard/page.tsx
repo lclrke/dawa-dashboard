@@ -9,6 +9,15 @@ type ArtistRow = {
   artists: { name: string } | null;
 };
 
+type AlsSummaryRow = {
+  id: string | number;
+  project_name: string | null;
+  als_filename: string | null;
+  parse_id: string | null;
+  parse_timestamp: string;
+  summary: any; // jsonb
+};
+
 export default function Dashboard() {
   const router = useRouter();
 
@@ -21,6 +30,11 @@ export default function Dashboard() {
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  const [parses, setParses] = useState<AlsSummaryRow[]>([]);
+  const [parsesLoading, setParsesLoading] = useState(false);
+  const [parsesError, setParsesError] = useState<string | null>(null);
+
+  // initial load: auth + artist
   useEffect(() => {
     const load = async () => {
       setLoading(true);
@@ -57,6 +71,39 @@ export default function Dashboard() {
 
     load();
   }, [router]);
+
+  // fetch ALS summaries whenever artistId is known / changes
+  useEffect(() => {
+    const fetchParses = async () => {
+      if (!artistId) {
+        setParses([]);
+        return;
+      }
+
+      setParsesLoading(true);
+      setParsesError(null);
+
+      const { data, error } = await supabase
+        .from("als_summaries")
+        .select(
+          "id, project_name, als_filename, parse_id, parse_timestamp, summary"
+        )
+        .eq("artist_id", artistId)
+        .order("parse_timestamp", { ascending: false });
+
+      if (error) {
+        console.error(error);
+        setParsesError(error.message);
+        setParses([]);
+      } else {
+        setParses((data ?? []) as AlsSummaryRow[]);
+      }
+
+      setParsesLoading(false);
+    };
+
+    fetchParses();
+  }, [artistId]);
 
   const handleSaveArtist = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -117,7 +164,7 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <main className="min-h-screen flex items-center justify-center">
+      <main className="min-h-screen flex items-center justify-center bg-black text-white">
         <p>Loading…</p>
       </main>
     );
@@ -127,18 +174,15 @@ export default function Dashboard() {
     <main className="min-h-screen px-8 py-12 text-white bg-black">
       <h1 className="text-5xl font-bold mb-8">Dashboard</h1>
 
-      {userEmail && (
-        <p className="mb-4 text-lg">User: {userEmail}</p>
-      )}
+      {userEmail && <p className="mb-4 text-lg">User: {userEmail}</p>}
 
       <p className="mb-2 text-lg">
         Current artist name: {artistName ?? "None yet"}
       </p>
-      <p className="mb-8 text-lg">
-        Current artist ID: {artistId ?? "—"}
-      </p>
+      <p className="mb-8 text-lg">Current artist ID: {artistId ?? "—"}</p>
 
-      <form onSubmit={handleSaveArtist} className="max-w-md space-y-4">
+      {/* Artist form */}
+      <form onSubmit={handleSaveArtist} className="max-w-md space-y-4 mb-12">
         <label className="block">
           <span className="block mb-1">Set artist name</span>
           <input
@@ -149,9 +193,7 @@ export default function Dashboard() {
           />
         </label>
 
-        {errorMsg && (
-          <p className="text-red-400 text-sm">{errorMsg}</p>
-        )}
+        {errorMsg && <p className="text-red-400 text-sm">{errorMsg}</p>}
 
         <button
           type="submit"
@@ -161,6 +203,96 @@ export default function Dashboard() {
           {saving ? "Saving…" : "Save artist"}
         </button>
       </form>
+
+      {/* ALS summaries */}
+      <section className="border border-gray-700 rounded-lg p-4">
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-2xl font-semibold">ALS Parses</h2>
+          {parsesLoading && (
+            <span className="text-xs text-gray-400">Loading parses…</span>
+          )}
+        </div>
+
+        {!artistId && (
+          <p className="text-sm text-gray-400">
+            Link an artist first to see ALS parses.
+          </p>
+        )}
+
+        {parsesError && (
+          <p className="text-sm text-red-400">
+            Error loading parses: {parsesError}
+          </p>
+        )}
+
+        {artistId && !parsesLoading && parses.length === 0 && !parsesError && (
+          <p className="text-sm text-gray-400">
+            No parses found yet for this artist.
+          </p>
+        )}
+
+        {parses.length > 0 && (
+          <div className="overflow-x-auto mt-4">
+            <table className="min-w-full text-sm border-collapse">
+              <thead>
+                <tr className="border-b border-gray-700">
+                  <th className="text-left py-2 pr-4">Project</th>
+                  <th className="text-left py-2 pr-4">ALS Filename</th>
+                  <th className="text-left py-2 pr-4">Parse ID</th>
+                  <th className="text-left py-2 pr-4">Parsed At</th>
+                  <th className="text-left py-2 pr-4">
+                    Tracks / Tempo (summary)
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {parses.map((row) => {
+                  const overview = row.summary?.overview ?? {};
+                  const tempo = overview.tempo;
+                  const totalTracks = overview.total_tracks;
+
+                  return (
+                    <tr
+                      key={row.id}
+                      className="border-b border-gray-800 align-top"
+                    >
+                      <td className="py-2 pr-4 font-medium">
+                        {row.project_name ?? "—"}
+                      </td>
+                      <td className="py-2 pr-4">
+                        <span className="font-mono text-xs">
+                          {row.als_filename ?? "—"}
+                        </span>
+                      </td>
+                      <td className="py-2 pr-4">
+                        <span className="font-mono text-xs">
+                          {row.parse_id ?? "—"}
+                        </span>
+                      </td>
+                      <td className="py-2 pr-4 text-xs">
+                        {row.parse_timestamp
+                          ? new Date(row.parse_timestamp).toLocaleString()
+                          : "—"}
+                      </td>
+                      <td className="py-2 pr-4 text-xs">
+                        {totalTracks != null && (
+                          <div>Tracks: {String(totalTracks)}</div>
+                        )}
+                        {tempo != null && <div>Tempo: {String(tempo)}</div>}
+                        {totalTracks == null && tempo == null && (
+                          <div className="text-gray-500">
+                            No overview fields in summary.
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </main>
   );
 }
