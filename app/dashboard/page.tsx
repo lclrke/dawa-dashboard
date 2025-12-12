@@ -54,11 +54,170 @@ export default function Dashboard() {
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
 
+  // Train mode state
+  const [trainAudioFile, setTrainAudioFile] = useState<File | null>(null);
+  const [trainPrompt, setTrainPrompt] = useState<string | null>(null);
+  const [trainLoading, setTrainLoading] = useState(false);
+  const [trainSaving, setTrainSaving] = useState(false);
+  const [trainError, setTrainError] = useState<string | null>(null);
+  const [trainSuccess, setTrainSuccess] = useState<string | null>(null);
+
+  // Training items list
+  type TrainingItem = {
+    id: string;
+    als_filename: string | null;
+    status: string;
+    prompt_text: string | null;
+  };
+  const [trainingItems, setTrainingItems] = useState<TrainingItem[]>([]);
+  const [exportLoading, setExportLoading] = useState(false);
+  const [datasetUrl, setDatasetUrl] = useState<string | null>(null);
+
   const handleModeChange = (newMode: ChatMode) => {
     if (newMode !== chatMode) {
       setChatMode(newMode);
       setChatMessages([]);
       setChatInput("");
+      // Reset train state when switching modes
+      setTrainAudioFile(null);
+      setTrainPrompt(null);
+      setTrainError(null);
+      setTrainSuccess(null);
+    }
+  };
+
+  // Fetch training items when in train mode
+  useEffect(() => {
+    const fetchTrainingItems = async () => {
+      if (chatMode !== "train" || !artistId) return;
+      
+      const { data, error } = await supabase
+        .from("training_items")
+        .select("id, als_filename, status, prompt_text")
+        .eq("artist_id", artistId)
+        .order("created_at", { ascending: false });
+
+      if (!error && data) {
+        setTrainingItems(data as TrainingItem[]);
+      }
+    };
+
+    fetchTrainingItems();
+  }, [chatMode, artistId, trainSuccess]);
+
+  // Handle audio file selection
+  const handleAudioFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && file.type.startsWith("audio/")) {
+      setTrainAudioFile(file);
+      setTrainError(null);
+    } else if (file) {
+      setTrainError("Please select an audio file (MP3, WAV, etc.)");
+    }
+  };
+
+  // Generate training prompt
+  const handleGeneratePrompt = async () => {
+    if (!selectedParse || !artistId) {
+      setTrainError("Please select a track from the Project Library first");
+      return;
+    }
+
+    setTrainLoading(true);
+    setTrainError(null);
+    setTrainPrompt(null);
+
+    try {
+      const res = await fetch("/api/train", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          artistId,
+          parseId: selectedParse.parse_id,
+        }),
+      });
+
+      if (!res.ok) throw new Error("Failed to generate prompt");
+
+      const data = await res.json();
+      setTrainPrompt(data.prompt);
+    } catch (err) {
+      console.error(err);
+      setTrainError("Failed to generate prompt. Please try again.");
+    } finally {
+      setTrainLoading(false);
+    }
+  };
+
+  // Save training item
+  const handleSaveTrainingItem = async () => {
+    if (!trainAudioFile || !trainPrompt || !selectedParse || !artistId) {
+      setTrainError("Missing audio file, prompt, or selected track");
+      return;
+    }
+
+    setTrainSaving(true);
+    setTrainError(null);
+
+    try {
+      // Convert audio file to base64
+      const arrayBuffer = await trainAudioFile.arrayBuffer();
+      const base64 = Buffer.from(arrayBuffer).toString("base64");
+
+      const res = await fetch("/api/train/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          artistId,
+          alsSummaryId: selectedParse.id,
+          parseId: selectedParse.parse_id,
+          alsFilename: selectedParse.als_filename,
+          projectName: selectedParse.project_name,
+          audioBase64: base64,
+          promptText: trainPrompt,
+        }),
+      });
+
+      if (!res.ok) throw new Error("Failed to save training item");
+
+      setTrainSuccess(`Saved: ${selectedParse.als_filename?.replace(/\.als$/i, "")}`);
+      // Reset for next item
+      setTrainAudioFile(null);
+      setTrainPrompt(null);
+      setSelectedParse(null);
+    } catch (err) {
+      console.error(err);
+      setTrainError("Failed to save training item. Please try again.");
+    } finally {
+      setTrainSaving(false);
+    }
+  };
+
+  // Export dataset
+  const handleExportDataset = async () => {
+    if (!artistId) return;
+
+    setExportLoading(true);
+    setDatasetUrl(null);
+
+    try {
+      const res = await fetch("/api/train/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ artistId }),
+      });
+
+      if (!res.ok) throw new Error("Failed to export dataset");
+
+      const data = await res.json();
+      setDatasetUrl(data.datasetUrl);
+      // Refresh training items list
+      setTrainSuccess(`Exported ${data.itemCount} items`);
+    } catch (err) {
+      console.error(err);
+      setTrainError("Failed to export dataset. Please try again.");
+    } finally {
+      setExportLoading(false);
     }
   };
 
@@ -290,7 +449,9 @@ export default function Dashboard() {
           <CardHeader className="pb-3">
             <CardTitle>AI Workspace</CardTitle>
             <CardDescription>
-              Choose a mode and start chatting
+              {chatMode === "train" 
+                ? "Create training pairs for MusicGen fine-tuning"
+                : "Choose a mode and start chatting"}
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
@@ -319,57 +480,179 @@ export default function Dashboard() {
               </Button>
             </div>
 
-            {/* Chat messages */}
-            <div className="h-64 overflow-y-auto border border-border rounded-lg p-3 bg-muted/30">
-              {chatMessages.length === 0 && !chatLoading && (
-                <p className="text-sm text-muted-foreground">
-                  {chatMode === "production" && "Ask me anything about your production workflow..."}
-                  {chatMode === "train" && "I'll help you prepare a dataset and train a model..."}
-                  {chatMode === "generate" && "Describe the music you want to generate..."}
-                </p>
-              )}
-              {chatMessages.map((msg, i) => (
-                <div
-                  key={i}
-                  className={`mb-3 text-sm ${
-                    msg.role === "user" ? "text-foreground" : "text-muted-foreground"
-                  }`}
-                >
-                  <span className="font-semibold">
-                    {msg.role === "user" ? "You: " : "AI: "}
-                  </span>
-                  {msg.content}
+            {/* Train Mode UI */}
+            {chatMode === "train" ? (
+              <div className="flex flex-col gap-4">
+                {/* Instructions */}
+                <div className="text-sm text-muted-foreground">
+                  {!selectedParse && "1. Select a track from the Project Library"}
+                  {selectedParse && !trainAudioFile && "2. Upload the audio file for this track"}
+                  {selectedParse && trainAudioFile && !trainPrompt && "3. Generate a training prompt"}
+                  {selectedParse && trainAudioFile && trainPrompt && "4. Save and continue to next track"}
                 </div>
-              ))}
-              {chatLoading && (
-                <div className="text-sm text-muted-foreground italic">
-                  Thinking…
-                </div>
-              )}
-            </div>
 
-            {/* Input row */}
-            <div className="flex gap-2">
-              <Input
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSendMessage();
-                  }
-                }}
-                placeholder="Type a message..."
-                className="flex-1"
-                disabled={chatLoading}
-              />
-              <Button
-                onClick={handleSendMessage}
-                disabled={chatLoading || !chatInput.trim()}
-              >
-                Send
-              </Button>
-            </div>
+                {/* Selected Track */}
+                {selectedParse && (
+                  <div className="p-3 bg-muted/50 rounded-lg">
+                    <p className="text-sm font-medium">
+                      {selectedParse.als_filename?.replace(/\.als$/i, "")}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {selectedParse.project_name}
+                    </p>
+                  </div>
+                )}
+
+                {/* Audio Upload */}
+                {selectedParse && (
+                  <div className="flex flex-col gap-2">
+                    <label className="text-sm font-medium">Audio File</label>
+                    <input
+                      type="file"
+                      accept="audio/*"
+                      onChange={handleAudioFileChange}
+                      className="text-sm file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-primary file:text-primary-foreground hover:file:bg-primary/90"
+                    />
+                    {trainAudioFile && (
+                      <p className="text-xs text-muted-foreground">
+                        Selected: {trainAudioFile.name}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Generate Prompt Button */}
+                {selectedParse && trainAudioFile && !trainPrompt && (
+                  <Button
+                    onClick={handleGeneratePrompt}
+                    disabled={trainLoading}
+                  >
+                    {trainLoading ? "Generating..." : "Generate Prompt"}
+                  </Button>
+                )}
+
+                {/* Generated Prompt Display */}
+                {trainPrompt && (
+                  <div className="p-3 bg-muted/50 rounded-lg">
+                    <p className="text-xs font-medium text-muted-foreground mb-1">Generated Prompt:</p>
+                    <p className="text-sm">{trainPrompt}</p>
+                  </div>
+                )}
+
+                {/* Save Button */}
+                {trainPrompt && (
+                  <Button
+                    onClick={handleSaveTrainingItem}
+                    disabled={trainSaving}
+                  >
+                    {trainSaving ? "Saving..." : "Save & Next"}
+                  </Button>
+                )}
+
+                {/* Error/Success Messages */}
+                {trainError && (
+                  <p className="text-sm text-destructive">{trainError}</p>
+                )}
+                {trainSuccess && (
+                  <p className="text-sm text-green-600">{trainSuccess}</p>
+                )}
+
+                {/* Training Items List */}
+                {trainingItems.length > 0 && (
+                  <div className="border-t border-border pt-4 mt-2">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm font-medium">
+                        Training Items ({trainingItems.filter(t => t.status === "ready").length} ready)
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handleExportDataset}
+                        disabled={exportLoading || trainingItems.filter(t => t.status === "ready").length === 0}
+                      >
+                        {exportLoading ? "Exporting..." : "Export Dataset"}
+                      </Button>
+                    </div>
+                    <div className="max-h-32 overflow-y-auto space-y-1">
+                      {trainingItems.map((item) => (
+                        <div key={item.id} className="flex items-center justify-between text-xs p-2 bg-muted/30 rounded">
+                          <span className="truncate">{item.als_filename?.replace(/\.als$/i, "") ?? "Unknown"}</span>
+                          <span className={cn(
+                            "px-2 py-0.5 rounded-full text-[10px] font-medium",
+                            item.status === "ready" && "bg-green-100 text-green-800",
+                            item.status === "exported" && "bg-blue-100 text-blue-800",
+                            item.status === "failed" && "bg-red-100 text-red-800"
+                          )}>
+                            {item.status}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    {datasetUrl && (
+                      <div className="mt-2 p-2 bg-green-50 rounded text-xs">
+                        <p className="font-medium text-green-800">Dataset exported!</p>
+                        <a href={datasetUrl} target="_blank" rel="noopener noreferrer" className="text-green-600 underline break-all">
+                          {datasetUrl}
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <>
+                {/* Chat messages (Production/Generate modes) */}
+                <div className="h-64 overflow-y-auto border border-border rounded-lg p-3 bg-muted/30">
+                  {chatMessages.length === 0 && !chatLoading && (
+                    <p className="text-sm text-muted-foreground">
+                      {chatMode === "production" && "Ask me anything about your production workflow..."}
+                      {chatMode === "generate" && "Describe the music you want to generate..."}
+                    </p>
+                  )}
+                  {chatMessages.map((msg, i) => (
+                    <div
+                      key={i}
+                      className={`mb-3 text-sm ${
+                        msg.role === "user" ? "text-foreground" : "text-muted-foreground"
+                      }`}
+                    >
+                      <span className="font-semibold">
+                        {msg.role === "user" ? "You: " : "AI: "}
+                      </span>
+                      {msg.content}
+                    </div>
+                  ))}
+                  {chatLoading && (
+                    <div className="text-sm text-muted-foreground italic">
+                      Thinking…
+                    </div>
+                  )}
+                </div>
+
+                {/* Input row */}
+                <div className="flex gap-2">
+                  <Input
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSendMessage();
+                      }
+                    }}
+                    placeholder="Type a message..."
+                    className="flex-1"
+                    disabled={chatLoading}
+                  />
+                  <Button
+                    onClick={handleSendMessage}
+                    disabled={chatLoading || !chatInput.trim()}
+                  >
+                    Send
+                  </Button>
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
 
@@ -381,22 +664,24 @@ export default function Dashboard() {
               selectedParse && "rounded-r-none border-r-0"
             )}
           >
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <div className="space-y-1">
-                  <CardTitle>Project Library</CardTitle>
-                  <CardDescription>
-                    Your connected Ableton Live projects
-                  </CardDescription>
-                </div>
+            <CardHeader className="pb-0 shrink-0">
+              <div className="flex items-center justify-between h-9">
+                <CardTitle>Project Library</CardTitle>
                 {parsesLoading && (
                   <span className="text-xs text-muted-foreground">
                     Loading…
                   </span>
                 )}
               </div>
+              <div className="flex items-center justify-between min-w-0 gap-4">
+                <span className="text-sm text-muted-foreground truncate">
+                  Your connected Ableton Live projects
+                </span>
+                <span className="text-sm text-muted-foreground shrink-0">Date</span>
+              </div>
             </CardHeader>
-            <CardContent className="flex-1 overflow-y-auto">
+            <div className="border-b border-border mx-6 mt-4 shrink-0" />
+            <CardContent className="flex-1 overflow-y-auto px-6 py-0">
               {!artistId && (
                 <p className="text-sm text-muted-foreground py-4">
                   Link an artist first to see your projects.
@@ -416,13 +701,7 @@ export default function Dashboard() {
               )}
 
               {parses.length > 0 && (
-                <div className="flex flex-col">
-                  <div className="flex items-center justify-between py-2 text-xs font-medium text-muted-foreground">
-                    <span>Session</span>
-                    <span>Date</span>
-                  </div>
-                  <div className="border-b border-border" />
-                  <div className="flex flex-col divide-y divide-border">
+                <div className="flex flex-col divide-y divide-border">
                     {parses.map((row) => {
                       const alsDisplayName = row.als_filename
                         ? row.als_filename.replace(/\.als$/i, "")
@@ -452,7 +731,6 @@ export default function Dashboard() {
                         </div>
                       );
                     })}
-                  </div>
                 </div>
               )}
             </CardContent>
@@ -473,25 +751,33 @@ export default function Dashboard() {
               selectedParse ? "w-[520px]" : "w-0"
             )}
           >
-            <Card className="w-[520px] h-full flex flex-col overflow-hidden border-l-0 rounded-l-none">
-              <CardHeader className="py-3 border-b border-border shrink-0">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm">
-                    {selectedParse?.als_filename?.replace(/\.als$/i, "") ?? "Summary"}
-                  </CardTitle>
+            <Card className="w-[520px] h-full flex flex-col overflow-hidden border-l-0 rounded-l-none gap-0">
+              <CardHeader className="pb-0 shrink-0">
+                <div className="flex items-center justify-between h-9">
+                  <CardTitle>Summary</CardTitle>
                   <Button
                     variant="ghost"
                     size="icon"
                     onClick={() => setSelectedParse(null)}
-                    className="shrink-0"
+                    className="shrink-0 h-9 w-9"
                   >
                     <span className="text-lg">×</span>
                   </Button>
                 </div>
+                <div className="flex items-center justify-between min-w-0 gap-4">
+                  <span className="text-sm text-muted-foreground truncate">
+                    {selectedParse?.als_filename?.replace(/\.als$/i, "") ?? "\u00A0"}
+                  </span>
+                  {/* keep structure identical to left header row */}
+                  <span className="text-sm text-muted-foreground opacity-0 select-none shrink-0">
+                    Date
+                  </span>
+                </div>
               </CardHeader>
-              <CardContent className="flex-1 overflow-y-auto p-3">
+              <div className="border-b border-border mx-6 mt-4 shrink-0" />
+              <CardContent className="flex-1 overflow-y-auto overflow-x-hidden p-3">
                 {selectedParse?.summary ? (
-                  <pre className="text-xs font-mono whitespace-pre-wrap break-words m-0">
+                  <pre className="m-0 text-xs font-mono whitespace-pre-wrap [overflow-wrap:anywhere] break-words">
                     {JSON.stringify(selectedParse.summary, null, 2)}
                   </pre>
                 ) : (

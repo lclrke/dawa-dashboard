@@ -98,6 +98,49 @@
 
 ---
 
+### `training_items`
+
+Stores training pairs (audio + prompt) for MusicGen fine-tuning.
+
+| Column | Type | Nullable | Default |
+|--------|------|----------|---------|
+| `id` | uuid | NO | `gen_random_uuid()` |
+| `artist_id` | uuid | NO | — |
+| `als_summary_id` | uuid | YES | — |
+| `parse_id` | text | NO | — |
+| `als_filename` | text | YES | — |
+| `project_name` | text | YES | — |
+| `audio_path` | text | YES | — |
+| `prompt_path` | text | YES | — |
+| `prompt_text` | text | YES | — |
+| `status` | text | NO | `'needs_audio'` |
+| `system_prompt_version` | text | YES | — |
+| `model_name` | text | YES | — |
+| `generated_at` | timestamptz | YES | — |
+| `created_at` | timestamptz | YES | `now()` |
+| `updated_at` | timestamptz | YES | `now()` |
+
+- PK: `id`
+- FK: `artist_id` → `artists.id` (CASCADE)
+- FK: `als_summary_id` → `als_summaries.id` (SET NULL)
+- Index: `(artist_id, status)` for queue queries
+
+**Status values:**
+- `needs_audio` — waiting for audio upload
+- `needs_prompt` — audio uploaded, prompt not generated
+- `ready` — both audio and prompt saved
+- `exported` — included in a dataset export
+- `failed` — generation or save failed
+
+**Storage paths:**
+```
+artists/{artist-slug}/training/{training_item_id}/
+├── audio.mp3
+└── prompt.txt
+```
+
+---
+
 ## JSONB Schemas
 
 ### `als_summaries.summary`
@@ -240,6 +283,8 @@ interface ArtistMasterSchema {
 | `user_artists.artist_id` | `artists.id` | Many-to-One | CASCADE |
 | `artist_profiles.artist_id` | `artists.id` | One-to-One | CASCADE |
 | `als_summaries.artist_id` | `artists.id` | Many-to-One | SET NULL |
+| `training_items.artist_id` | `artists.id` | Many-to-One | CASCADE |
+| `training_items.als_summary_id` | `als_summaries.id` | Many-to-One | SET NULL |
 
 ---
 
@@ -247,14 +292,44 @@ interface ArtistMasterSchema {
 
 ### Enabled
 - `als_summaries` — users read only their linked artists
+- `training_items` — users can read/write only for their linked artists
 
 ```sql
+-- als_summaries
 CREATE POLICY "read summaries for my artists" 
 ON public.als_summaries FOR SELECT TO authenticated 
 USING (
   EXISTS (
     SELECT 1 FROM user_artists ua
     WHERE ua.user_id = auth.uid() AND ua.artist_id = als_summaries.artist_id
+  )
+);
+
+-- training_items (SELECT, INSERT, UPDATE)
+CREATE POLICY "Users can read their own training items"
+ON training_items FOR SELECT TO authenticated
+USING (
+  EXISTS (
+    SELECT 1 FROM user_artists ua
+    WHERE ua.user_id = auth.uid() AND ua.artist_id = training_items.artist_id
+  )
+);
+
+CREATE POLICY "Users can insert training items for their artists"
+ON training_items FOR INSERT TO authenticated
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM user_artists ua
+    WHERE ua.user_id = auth.uid() AND ua.artist_id = training_items.artist_id
+  )
+);
+
+CREATE POLICY "Users can update their own training items"
+ON training_items FOR UPDATE TO authenticated
+USING (
+  EXISTS (
+    SELECT 1 FROM user_artists ua
+    WHERE ua.user_id = auth.uid() AND ua.artist_id = training_items.artist_id
   )
 );
 ```
@@ -272,9 +347,15 @@ USING (
 
 **Structure:**
 ```
-artists/{artist-slug}/daw-data/{project}/{als}/{parse-id}/
-├── summary.json
-└── timeline_visualizer.png
+artists/{artist-slug}/
+├── daw-data/{project}/{als}/{parse-id}/
+│   ├── summary.json
+│   └── timeline_visualizer.png
+├── training/{training-item-id}/
+│   ├── audio.mp3
+│   └── prompt.txt
+└── datasets/
+    └── dataset-{timestamp}.zip
 ```
 
 **Policies:** Public read/insert/update on `dawa-exports` bucket.
