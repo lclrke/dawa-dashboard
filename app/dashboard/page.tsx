@@ -45,6 +45,49 @@ export default function Dashboard() {
 
   const [selectedParse, setSelectedParse] = useState<AlsSummaryRow | null>(null);
 
+  // Chat state
+  type ChatMode = "production" | "train" | "generate";
+  type ChatMessage = { role: "user" | "assistant"; content: string };
+  const [chatMode, setChatMode] = useState<ChatMode>("production");
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+
+  const handleSendMessage = async () => {
+    const trimmed = chatInput.trim();
+    if (!trimmed || chatLoading) return;
+
+    const userMessage: ChatMessage = { role: "user", content: trimmed };
+    setChatMessages((prev) => [...prev, userMessage]);
+    setChatInput("");
+    setChatLoading(true);
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: chatMode,
+          messages: [...chatMessages, userMessage],
+        }),
+      });
+
+      if (!res.ok) throw new Error("Chat request failed");
+
+      const data = await res.json();
+      const assistantMessage: ChatMessage = { role: "assistant", content: data.reply };
+      setChatMessages((prev) => [...prev, assistantMessage]);
+    } catch (err) {
+      console.error(err);
+      setChatMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: "Sorry, something went wrong. Please try again." },
+      ]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
   // initial load: auth + artist
   useEffect(() => {
     const load = async () => {
@@ -232,6 +275,94 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         )}
+
+        {/* AI Workspace */}
+        <Card className="max-w-xl">
+          <CardHeader className="pb-3">
+            <CardTitle>AI Workspace</CardTitle>
+            <CardDescription>
+              Choose a mode and start chatting
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            {/* Mode buttons */}
+            <div className="flex gap-2">
+              <Button
+                variant={chatMode === "production" ? "default" : "outline"}
+                className="h-8 px-3 text-xs"
+                onClick={() => setChatMode("production")}
+              >
+                Production
+              </Button>
+              <Button
+                variant={chatMode === "train" ? "default" : "outline"}
+                className="h-8 px-3 text-xs"
+                onClick={() => setChatMode("train")}
+              >
+                Train
+              </Button>
+              <Button
+                variant={chatMode === "generate" ? "default" : "outline"}
+                className="h-8 px-3 text-xs"
+                onClick={() => setChatMode("generate")}
+              >
+                Generate
+              </Button>
+            </div>
+
+            {/* Chat messages */}
+            <div className="h-64 overflow-y-auto border border-border rounded-lg p-3 bg-muted/30">
+              {chatMessages.length === 0 && !chatLoading && (
+                <p className="text-sm text-muted-foreground">
+                  {chatMode === "production" && "Ask me anything about your production workflow..."}
+                  {chatMode === "train" && "I'll help you prepare a dataset and train a model..."}
+                  {chatMode === "generate" && "Describe the music you want to generate..."}
+                </p>
+              )}
+              {chatMessages.map((msg, i) => (
+                <div
+                  key={i}
+                  className={`mb-3 text-sm ${
+                    msg.role === "user" ? "text-foreground" : "text-muted-foreground"
+                  }`}
+                >
+                  <span className="font-semibold">
+                    {msg.role === "user" ? "You: " : "AI: "}
+                  </span>
+                  {msg.content}
+                </div>
+              ))}
+              {chatLoading && (
+                <div className="text-sm text-muted-foreground italic">
+                  Thinking…
+                </div>
+              )}
+            </div>
+
+            {/* Input row */}
+            <div className="flex gap-2">
+              <Input
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendMessage();
+                  }
+                }}
+                placeholder="Type a message..."
+                className="flex-1"
+                disabled={chatLoading}
+              />
+              <Button
+                onClick={handleSendMessage}
+                disabled={chatLoading || !chatInput.trim()}
+              >
+                Send
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* ALS Summaries + Slide-out */}
         <div className="flex items-start gap-0 max-h-[600px]">
