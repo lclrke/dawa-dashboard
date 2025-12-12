@@ -43,6 +43,8 @@ export default function Dashboard() {
   const [parsesLoading, setParsesLoading] = useState(false);
   const [parsesError, setParsesError] = useState<string | null>(null);
 
+  const [selectedParse, setSelectedParse] = useState<AlsSummaryRow | null>(null);
+
   // initial load: auth + artist
   useEffect(() => {
     const load = async () => {
@@ -180,39 +182,36 @@ export default function Dashboard() {
   }
 
   return (
-    <main className="min-h-screen bg-background px-6 py-12 md:px-12 lg:px-24">
-      <div className="max-w-5xl mx-auto space-y-8">
-        {/* Header */}
-        <header className="space-y-1">
-          <h1 className="text-3xl font-semibold tracking-tight">Dashboard</h1>
-          {userEmail && (
-            <p className="text-sm text-muted-foreground">{userEmail}</p>
-          )}
-        </header>
+    <div className="min-h-screen bg-background">
+      {/* App Bar */}
+      <header className="px-4 py-4">
+        <span className="text-xl font-bold tracking-tight">DAWA</span>
+      </header>
+      <div className="border-b border-border" />
 
-        {/* Artist Card */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Artist Profile</CardTitle>
-            <CardDescription>
-              {artistId
-                ? "Your linked artist identity"
-                : "Link your artist identity to access your DAW data"}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {artistId ? (
-              <div className="flex items-center gap-6 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Name:</span>{" "}
-                  <span className="font-medium">{artistName}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">ID:</span>{" "}
-                  <span className="font-mono text-xs">{artistId}</span>
-                </div>
-              </div>
-            ) : (
+      {/* Main Content */}
+      <main className="px-6 py-12 md:px-12 lg:px-24">
+        <div className="max-w-5xl mx-auto space-y-8">
+          {/* Artist Profile */}
+        {artistId ? (
+          <div className="flex items-center gap-6">
+            <div className="size-20 rounded-full bg-muted flex items-center justify-center text-3xl font-semibold text-muted-foreground shrink-0">
+              {artistName?.charAt(0).toUpperCase() ?? "?"}
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-2xl font-bold tracking-tight">{artistName}</span>
+              <span className="text-sm text-muted-foreground/70">{userEmail}</span>
+            </div>
+          </div>
+        ) : (
+          <Card>
+            <CardHeader>
+              <CardTitle>Artist Profile</CardTitle>
+              <CardDescription>
+                Link your artist identity to access your DAW data
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
               <div className="space-y-4">
                 <form onSubmit={handleSaveArtist} className="flex gap-3 max-w-md">
                   <Input
@@ -230,13 +229,14 @@ export default function Dashboard() {
                   <p className="text-sm text-destructive">{errorMsg}</p>
                 )}
               </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
 
-        {/* ALS Summaries Card */}
-        <Card>
-          <CardHeader>
+        {/* ALS Summaries + Slide-out */}
+        <div className="flex gap-6 items-start">
+        <Card className="max-w-xl gap-0 shrink-0">
+          <CardHeader className="py-4">
             <div className="flex items-center justify-between">
               <div className="space-y-1">
                 <CardTitle>Project Library</CardTitle>
@@ -251,7 +251,8 @@ export default function Dashboard() {
               )}
             </div>
           </CardHeader>
-          <CardContent>
+          <div className="border-b border-border mx-6" />
+          <CardContent className="p-0">
             {!artistId && (
               <p className="text-sm text-muted-foreground">
                 Link an artist first to see your projects.
@@ -271,49 +272,78 @@ export default function Dashboard() {
             )}
 
             {parses.length > 0 && (
-              <div className="overflow-x-auto -mx-6">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th className="text-left py-3 px-6 font-medium text-muted-foreground">
-                        Project
-                      </th>
-                      <th className="text-left py-3 px-4 font-medium text-muted-foreground">
-                        Session
-                      </th>
-                      <th className="text-left py-3 px-6 font-medium text-muted-foreground">
-                        Date
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {parses.map((row) => (
-                      <tr
-                        key={row.id}
-                        className="border-b border-border last:border-0"
-                      >
-                        <td className="py-3 px-6 font-medium">
+              <div className="flex flex-col divide-y divide-border -mx-6">
+                {parses.map((row) => {
+                  const alsDisplayName = row.als_filename
+                    ? row.als_filename.replace(/\.als$/i, "")
+                    : "—";
+
+                  return (
+                    <div
+                      key={row.id}
+                      className="flex items-center justify-between gap-4 px-6 py-3"
+                    >
+                      <div className="flex flex-col gap-0.5 min-w-0">
+                        <span
+                          onClick={() => setSelectedParse(row)}
+                          className="text-sm font-semibold leading-none tracking-tight truncate cursor-pointer hover:underline decoration-foreground"
+                        >
+                          {alsDisplayName}
+                        </span>
+                        <span className="text-xs text-muted-foreground truncate">
                           {row.project_name ?? "—"}
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className="font-mono text-xs">
-                            {row.als_filename ?? "—"}
-                          </span>
-                        </td>
-                        <td className="py-3 px-6 text-xs text-muted-foreground">
-                          {row.parse_timestamp
-                            ? new Date(row.parse_timestamp).toLocaleString()
-                            : "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                        </span>
+                      </div>
+                      <span className="text-xs text-muted-foreground shrink-0">
+                        {row.parse_timestamp
+                          ? new Date(row.parse_timestamp).toLocaleDateString()
+                          : "—"}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </CardContent>
         </Card>
-      </div>
-    </main>
+
+          {/* Summary Slide-out */}
+          {selectedParse && (
+            <Card className="max-w-xl flex-1 max-h-[600px] overflow-hidden flex flex-col">
+              <CardHeader className="py-4 border-b border-border shrink-0">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                    <CardTitle>
+                      {selectedParse.als_filename?.replace(/\.als$/i, "") ?? "Summary"}
+                    </CardTitle>
+                    <CardDescription>
+                      {selectedParse.project_name ?? "Project details"}
+                    </CardDescription>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setSelectedParse(null)}
+                    className="shrink-0"
+                  >
+                    <span className="text-lg">×</span>
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="overflow-y-auto flex-1 py-4">
+                {selectedParse.summary ? (
+                  <pre className="text-xs font-mono whitespace-pre-wrap break-words">
+                    {JSON.stringify(selectedParse.summary, null, 2)}
+                  </pre>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No summary data available.</p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </div>
+        </div>
+      </main>
+    </div>
   );
 }
