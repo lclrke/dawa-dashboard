@@ -3,6 +3,15 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabaseClient";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 
 type ArtistRow = {
   artist_id: string;
@@ -164,135 +173,147 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <main className="min-h-screen flex items-center justify-center bg-black text-white">
-        <p>Loading…</p>
+      <main className="min-h-screen flex items-center justify-center bg-background">
+        <p className="text-muted-foreground">Loading…</p>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen px-8 py-12 text-white bg-black">
-      <h1 className="text-5xl font-bold mb-8">Dashboard</h1>
-
-      {userEmail && <p className="mb-4 text-lg">User: {userEmail}</p>}
-
-      <p className="mb-2 text-lg">
-        Current artist name: {artistName ?? "None yet"}
-      </p>
-      <p className="mb-8 text-lg">Current artist ID: {artistId ?? "—"}</p>
-
-      {/* Artist form */}
-      <form onSubmit={handleSaveArtist} className="max-w-md space-y-4 mb-12">
-        <label className="block">
-          <span className="block mb-1">Set artist name</span>
-          <input
-            value={inputName}
-            onChange={(e) => setInputName(e.target.value)}
-            className="w-full px-3 py-2 rounded border border-gray-600 bg-black text-white"
-            placeholder='e.g. "Love Thy Brother"'
-          />
-        </label>
-
-        {errorMsg && <p className="text-red-400 text-sm">{errorMsg}</p>}
-
-        <button
-          type="submit"
-          disabled={saving}
-          className="px-4 py-2 rounded border border-white disabled:opacity-60"
-        >
-          {saving ? "Saving…" : "Save artist"}
-        </button>
-      </form>
-
-      {/* ALS summaries */}
-      <section className="border border-gray-700 rounded-lg p-4">
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-2xl font-semibold">ALS Parses</h2>
-          {parsesLoading && (
-            <span className="text-xs text-gray-400">Loading parses…</span>
+    <main className="min-h-screen bg-background px-6 py-12 md:px-12 lg:px-24">
+      <div className="max-w-5xl mx-auto space-y-8">
+        {/* Header */}
+        <header className="space-y-1">
+          <h1 className="text-3xl font-semibold tracking-tight">Dashboard</h1>
+          {userEmail && (
+            <p className="text-sm text-muted-foreground">{userEmail}</p>
           )}
-        </div>
+        </header>
 
-        {!artistId && (
-          <p className="text-sm text-gray-400">
-            Link an artist first to see ALS parses.
-          </p>
-        )}
+        {/* Artist Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Artist Profile</CardTitle>
+            <CardDescription>
+              {artistId
+                ? "Your linked artist identity"
+                : "Link your artist identity to access your DAW data"}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {artistId ? (
+              <div className="flex items-center gap-6 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Name:</span>{" "}
+                  <span className="font-medium">{artistName}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">ID:</span>{" "}
+                  <span className="font-mono text-xs">{artistId}</span>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <form onSubmit={handleSaveArtist} className="flex gap-3 max-w-md">
+                  <Input
+                    value={inputName}
+                    onChange={(e) => setInputName(e.target.value)}
+                    placeholder='e.g. "Love Thy Brother"'
+                    className="flex-1"
+                  />
+                  <Button type="submit" disabled={saving}>
+                    {saving ? "Saving…" : "Save"}
+                  </Button>
+                </form>
 
-        {parsesError && (
-          <p className="text-sm text-red-400">
-            Error loading parses: {parsesError}
-          </p>
-        )}
+                {errorMsg && (
+                  <p className="text-sm text-destructive">{errorMsg}</p>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
-        {artistId && !parsesLoading && parses.length === 0 && !parsesError && (
-          <p className="text-sm text-gray-400">
-            No parses found yet for this artist.
-          </p>
-        )}
+        {/* ALS Summaries Card */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="space-y-1">
+                <CardTitle>Project Library</CardTitle>
+                <CardDescription>
+                  Your connected Ableton Live projects
+                </CardDescription>
+              </div>
+              {parsesLoading && (
+                <span className="text-xs text-muted-foreground">
+                  Loading…
+                </span>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            {!artistId && (
+              <p className="text-sm text-muted-foreground">
+                Link an artist first to see your projects.
+              </p>
+            )}
 
-        {parses.length > 0 && (
-          <div className="overflow-x-auto mt-4">
-            <table className="min-w-full text-sm border-collapse">
-              <thead>
-                <tr className="border-b border-gray-700">
-                  <th className="text-left py-2 pr-4">Project</th>
-                  <th className="text-left py-2 pr-4">ALS Filename</th>
-                  <th className="text-left py-2 pr-4">Parse ID</th>
-                  <th className="text-left py-2 pr-4">Parsed At</th>
-                  <th className="text-left py-2 pr-4">
-                    Tracks / Tempo (summary)
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {parses.map((row) => {
-                  const overview = row.summary?.overview ?? {};
-                  const tempo = overview.tempo;
-                  const totalTracks = overview.total_tracks;
+            {parsesError && (
+              <p className="text-sm text-destructive">
+                Error loading projects: {parsesError}
+              </p>
+            )}
 
-                  return (
-                    <tr
-                      key={row.id}
-                      className="border-b border-gray-800 align-top"
-                    >
-                      <td className="py-2 pr-4 font-medium">
-                        {row.project_name ?? "—"}
-                      </td>
-                      <td className="py-2 pr-4">
-                        <span className="font-mono text-xs">
-                          {row.als_filename ?? "—"}
-                        </span>
-                      </td>
-                      <td className="py-2 pr-4">
-                        <span className="font-mono text-xs">
-                          {row.parse_id ?? "—"}
-                        </span>
-                      </td>
-                      <td className="py-2 pr-4 text-xs">
-                        {row.parse_timestamp
-                          ? new Date(row.parse_timestamp).toLocaleString()
-                          : "—"}
-                      </td>
-                      <td className="py-2 pr-4 text-xs">
-                        {totalTracks != null && (
-                          <div>Tracks: {String(totalTracks)}</div>
-                        )}
-                        {tempo != null && <div>Tempo: {String(tempo)}</div>}
-                        {totalTracks == null && tempo == null && (
-                          <div className="text-gray-500">
-                            No overview fields in summary.
-                          </div>
-                        )}
-                      </td>
+            {artistId && !parsesLoading && parses.length === 0 && !parsesError && (
+              <p className="text-sm text-muted-foreground">
+                No projects found yet for this artist.
+              </p>
+            )}
+
+            {parses.length > 0 && (
+              <div className="overflow-x-auto -mx-6">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th className="text-left py-3 px-6 font-medium text-muted-foreground">
+                        Project
+                      </th>
+                      <th className="text-left py-3 px-4 font-medium text-muted-foreground">
+                        Session
+                      </th>
+                      <th className="text-left py-3 px-6 font-medium text-muted-foreground">
+                        Date
+                      </th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+                  </thead>
+                  <tbody>
+                    {parses.map((row) => (
+                      <tr
+                        key={row.id}
+                        className="border-b border-border last:border-0"
+                      >
+                        <td className="py-3 px-6 font-medium">
+                          {row.project_name ?? "—"}
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="font-mono text-xs">
+                            {row.als_filename ?? "—"}
+                          </span>
+                        </td>
+                        <td className="py-3 px-6 text-xs text-muted-foreground">
+                          {row.parse_timestamp
+                            ? new Date(row.parse_timestamp).toLocaleString()
+                            : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </main>
   );
 }
