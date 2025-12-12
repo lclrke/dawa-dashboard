@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabaseClient";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -52,6 +53,14 @@ export default function Dashboard() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
+
+  const handleModeChange = (newMode: ChatMode) => {
+    if (newMode !== chatMode) {
+      setChatMode(newMode);
+      setChatMessages([]);
+      setChatInput("");
+    }
+  };
 
   const handleSendMessage = async () => {
     const trimmed = chatInput.trim();
@@ -290,21 +299,21 @@ export default function Dashboard() {
               <Button
                 variant={chatMode === "production" ? "default" : "outline"}
                 className="h-8 px-3 text-xs"
-                onClick={() => setChatMode("production")}
+                onClick={() => handleModeChange("production")}
               >
                 Production
               </Button>
               <Button
                 variant={chatMode === "train" ? "default" : "outline"}
                 className="h-8 px-3 text-xs"
-                onClick={() => setChatMode("train")}
+                onClick={() => handleModeChange("train")}
               >
                 Train
               </Button>
               <Button
                 variant={chatMode === "generate" ? "default" : "outline"}
                 className="h-8 px-3 text-xs"
-                onClick={() => setChatMode("generate")}
+                onClick={() => handleModeChange("generate")}
               >
                 Generate
               </Button>
@@ -365,100 +374,111 @@ export default function Dashboard() {
         </Card>
 
         {/* ALS Summaries + Slide-out */}
-        <div className="flex items-start gap-0 max-h-[600px]">
-        <Card className="flex-1 gap-0 max-h-[600px] overflow-hidden flex flex-col">
-          <CardHeader className="py-4">
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <CardTitle>Project Library</CardTitle>
-                <CardDescription>
-                  Your connected Ableton Live projects
-                </CardDescription>
+        <div className="flex items-stretch gap-0 h-[600px]">
+          <Card
+            className={cn(
+              "w-[520px] h-full flex flex-col overflow-hidden gap-0",
+              selectedParse && "rounded-r-none border-r-0"
+            )}
+          >
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <CardTitle>Project Library</CardTitle>
+                  <CardDescription>
+                    Your connected Ableton Live projects
+                  </CardDescription>
+                </div>
+                {parsesLoading && (
+                  <span className="text-xs text-muted-foreground">
+                    Loading…
+                  </span>
+                )}
               </div>
-              {parsesLoading && (
-                <span className="text-xs text-muted-foreground">
-                  Loading…
-                </span>
+            </CardHeader>
+            <CardContent className="flex-1 overflow-y-auto">
+              {!artistId && (
+                <p className="text-sm text-muted-foreground py-4">
+                  Link an artist first to see your projects.
+                </p>
               )}
-            </div>
-          </CardHeader>
-          <CardContent className="px-6 py-0 flex-1 overflow-y-auto">
-            {!artistId && (
-              <p className="text-sm text-muted-foreground py-4">
-                Link an artist first to see your projects.
-              </p>
-            )}
 
-            {parsesError && (
-              <p className="text-sm text-destructive py-4">
-                Error loading projects: {parsesError}
-              </p>
-            )}
+              {parsesError && (
+                <p className="text-sm text-destructive py-4">
+                  Error loading projects: {parsesError}
+                </p>
+              )}
 
-            {artistId && !parsesLoading && parses.length === 0 && !parsesError && (
-              <p className="text-sm text-muted-foreground py-4">
-                No projects found yet for this artist.
-              </p>
-            )}
+              {artistId && !parsesLoading && parses.length === 0 && !parsesError && (
+                <p className="text-sm text-muted-foreground py-4">
+                  No projects found yet for this artist.
+                </p>
+              )}
 
-            {parses.length > 0 && (
-              <div className="flex flex-col">
-                <div className="flex items-center justify-between py-2 text-xs font-medium text-muted-foreground">
-                  <span>Session</span>
-                  <span>Date</span>
-                </div>
-                <div className="border-b border-border" />
-                <div className="flex flex-col divide-y divide-border">
-                {parses.map((row) => {
-                  const alsDisplayName = row.als_filename
-                    ? row.als_filename.replace(/\.als$/i, "")
-                    : "—";
-
-                  return (
-                    <div
-                      key={row.id}
-                      className="flex items-center justify-between gap-4 py-3"
-                    >
-                      <div className="flex flex-col gap-0.5 min-w-0">
-                        <span
-                          onClick={() => setSelectedParse(row)}
-                          className="text-sm font-semibold leading-none tracking-tight truncate cursor-pointer hover:underline decoration-foreground"
-                        >
-                          {alsDisplayName}
-                        </span>
-                        <span className="text-xs text-muted-foreground truncate">
-                          {row.project_name ?? "—"}
-                        </span>
-                      </div>
-                      <span className="text-xs text-muted-foreground shrink-0">
-                        {row.parse_timestamp
-                          ? new Date(row.parse_timestamp).toLocaleDateString()
-                          : "—"}
-                      </span>
-                    </div>
-                  );
-                })}
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-          {/* Summary Slide-out */}
-          {selectedParse && (
-            <>
-            <div className="w-px bg-border" />
-            <Card className="w-[520px] max-h-[600px] flex flex-col overflow-hidden border-l-0 rounded-l-none">
-              <CardHeader className="py-4 border-b border-border shrink-0">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-1">
-                    <CardTitle>
-                      {selectedParse.als_filename?.replace(/\.als$/i, "") ?? "Summary"}
-                    </CardTitle>
-                    <CardDescription>
-                      {selectedParse.project_name ?? "Project details"}
-                    </CardDescription>
+              {parses.length > 0 && (
+                <div className="flex flex-col">
+                  <div className="flex items-center justify-between py-2 text-xs font-medium text-muted-foreground">
+                    <span>Session</span>
+                    <span>Date</span>
                   </div>
+                  <div className="border-b border-border" />
+                  <div className="flex flex-col divide-y divide-border">
+                    {parses.map((row) => {
+                      const alsDisplayName = row.als_filename
+                        ? row.als_filename.replace(/\.als$/i, "")
+                        : "—";
+
+                      return (
+                        <div
+                          key={row.id}
+                          className="flex items-center justify-between gap-4 py-3"
+                        >
+                          <div className="flex flex-col gap-0.5 min-w-0">
+                            <span
+                              onClick={() => setSelectedParse(row)}
+                              className="text-sm font-semibold leading-none tracking-tight truncate cursor-pointer hover:underline decoration-foreground"
+                            >
+                              {alsDisplayName}
+                            </span>
+                            <span className="text-xs text-muted-foreground truncate">
+                              {row.project_name ?? "—"}
+                            </span>
+                          </div>
+                          <span className="text-xs text-muted-foreground shrink-0">
+                            {row.parse_timestamp
+                              ? new Date(row.parse_timestamp).toLocaleDateString()
+                              : "—"}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Divider - always mounted */}
+          <div
+            className={cn(
+              "w-px bg-border self-stretch transition-opacity duration-200",
+              selectedParse ? "opacity-100" : "opacity-0"
+            )}
+          />
+
+          {/* Summary Slide-out - always mounted, width toggles */}
+          <div
+            className={cn(
+              "h-full overflow-hidden transition-all duration-200",
+              selectedParse ? "w-[520px]" : "w-0"
+            )}
+          >
+            <Card className="w-[520px] h-full flex flex-col overflow-hidden border-l-0 rounded-l-none">
+              <CardHeader className="py-3 border-b border-border shrink-0">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm">
+                    {selectedParse?.als_filename?.replace(/\.als$/i, "") ?? "Summary"}
+                  </CardTitle>
                   <Button
                     variant="ghost"
                     size="icon"
@@ -469,9 +489,9 @@ export default function Dashboard() {
                   </Button>
                 </div>
               </CardHeader>
-              <CardContent className="flex-1 overflow-y-auto py-4 px-6">
-                {selectedParse.summary ? (
-                  <pre className="text-xs font-mono whitespace-pre-wrap break-words">
+              <CardContent className="flex-1 overflow-y-auto p-3">
+                {selectedParse?.summary ? (
+                  <pre className="text-xs font-mono whitespace-pre-wrap break-words m-0">
                     {JSON.stringify(selectedParse.summary, null, 2)}
                   </pre>
                 ) : (
@@ -479,8 +499,7 @@ export default function Dashboard() {
                 )}
               </CardContent>
             </Card>
-            </>
-          )}
+          </div>
         </div>
         </div>
       </main>
