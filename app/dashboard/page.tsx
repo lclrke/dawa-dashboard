@@ -234,8 +234,8 @@ export default function Dashboard() {
         )}
 
         {/* ALS Summaries + Slide-out */}
-        <div className="flex gap-6 items-start">
-        <Card className="max-w-xl gap-0 shrink-0">
+        <div className="flex items-start gap-0 max-h-[600px]">
+        <Card className="flex-1 gap-0 max-h-[600px] overflow-hidden flex flex-col">
           <CardHeader className="py-4">
             <div className="flex items-center justify-between">
               <div className="space-y-1">
@@ -251,28 +251,33 @@ export default function Dashboard() {
               )}
             </div>
           </CardHeader>
-          <div className="border-b border-border mx-6" />
-          <CardContent className="p-0">
+          <CardContent className="px-6 py-0 flex-1 overflow-y-auto">
             {!artistId && (
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-muted-foreground py-4">
                 Link an artist first to see your projects.
               </p>
             )}
 
             {parsesError && (
-              <p className="text-sm text-destructive">
+              <p className="text-sm text-destructive py-4">
                 Error loading projects: {parsesError}
               </p>
             )}
 
             {artistId && !parsesLoading && parses.length === 0 && !parsesError && (
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-muted-foreground py-4">
                 No projects found yet for this artist.
               </p>
             )}
 
             {parses.length > 0 && (
-              <div className="flex flex-col divide-y divide-border -mx-6">
+              <div className="flex flex-col">
+                <div className="flex items-center justify-between py-2 text-xs font-medium text-muted-foreground">
+                  <span>Session</span>
+                  <span>Date</span>
+                </div>
+                <div className="border-b border-border" />
+                <div className="flex flex-col divide-y divide-border">
                 {parses.map((row) => {
                   const alsDisplayName = row.als_filename
                     ? row.als_filename.replace(/\.als$/i, "")
@@ -281,7 +286,7 @@ export default function Dashboard() {
                   return (
                     <div
                       key={row.id}
-                      className="flex items-center justify-between gap-4 px-6 py-3"
+                      className="flex items-center justify-between gap-4 py-3"
                     >
                       <div className="flex flex-col gap-0.5 min-w-0">
                         <span
@@ -302,6 +307,7 @@ export default function Dashboard() {
                     </div>
                   );
                 })}
+                </div>
               </div>
             )}
           </CardContent>
@@ -309,7 +315,9 @@ export default function Dashboard() {
 
           {/* Summary Slide-out */}
           {selectedParse && (
-            <Card className="max-w-xl flex-1 max-h-[600px] overflow-hidden flex flex-col">
+            <>
+            <div className="w-px bg-border" />
+            <Card className="w-[520px] max-h-[600px] flex flex-col overflow-hidden border-l-0 rounded-l-none">
               <CardHeader className="py-4 border-b border-border shrink-0">
                 <div className="flex items-center justify-between">
                   <div className="space-y-1">
@@ -330,7 +338,7 @@ export default function Dashboard() {
                   </Button>
                 </div>
               </CardHeader>
-              <CardContent className="overflow-y-auto flex-1 py-4">
+              <CardContent className="flex-1 overflow-y-auto py-4 px-6">
                 {selectedParse.summary ? (
                   <pre className="text-xs font-mono whitespace-pre-wrap break-words">
                     {JSON.stringify(selectedParse.summary, null, 2)}
@@ -340,6 +348,7 @@ export default function Dashboard() {
                 )}
               </CardContent>
             </Card>
+            </>
           )}
         </div>
         </div>
